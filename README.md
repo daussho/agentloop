@@ -16,4 +16,13 @@ agent := agentloop.NewOpenAICompatibleAgent(
 result, err := agent.Run(ctx, "Complete the task")
 ```
 
+For a multi-turn conversation, use a session. Concurrent calls to `Session.Run` wait and execute in order.
+
+```go
+session := agent.NewSession()
+_, _ = session.Run(ctx, "Research the topic")
+result, err := session.Run(ctx, "Now summarize it")
+messages := session.Messages()
+```
+
 `Run` stops only when the provider returns a response without tool calls, an operation fails, or `MaxSteps` is reached. MCP, planning, streaming, and retries are intentionally deferred.

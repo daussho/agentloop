@@ -3,8 +3,6 @@ package agentloop
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 )
 
 // Provider completes a conversation using a model provider.
@@ -135,75 +133,5 @@ func applyOptions(options []Option) config {
 
 // Run continues until the provider returns a final response or an error occurs.
 func (a Agent) Run(ctx context.Context, input string) (Result, error) {
-	if a.Provider == nil {
-		return Result{}, errors.New("agentloop: provider is required")
-	}
-	model := a.Model
-	if model == "" {
-		if configured, ok := a.Provider.(interface{ DefaultModel() string }); ok {
-			model = configured.DefaultModel()
-		}
-	}
-	if model == "" {
-		return Result{}, errors.New("agentloop: model is required")
-	}
-	maxSteps := a.MaxSteps
-	if maxSteps == 0 {
-		maxSteps = 20
-	}
-
-	tools := make(map[string]Tool, len(a.Tools))
-	definitions := make([]ToolDefinition, 0, len(a.Tools))
-	for _, tool := range a.Tools {
-		definition := tool.Definition()
-		if definition.Name == "" {
-			return Result{}, errors.New("agentloop: tool name is required")
-		}
-		if _, exists := tools[definition.Name]; exists {
-			return Result{}, fmt.Errorf("agentloop: duplicate tool %q", definition.Name)
-		}
-		tools[definition.Name] = tool
-		definitions = append(definitions, definition)
-	}
-
-	messages := []Message{{Role: "user", Content: input}}
-	result := Result{Messages: messages}
-	for step := 1; step <= maxSteps; step++ {
-		response, err := a.Provider.Complete(ctx, Request{
-			Model:           model,
-			SystemPrompt:    a.SystemPrompt,
-			ReasoningEffort: a.ReasoningEffort,
-			Messages:        messages,
-			Tools:           definitions,
-		})
-		if err != nil {
-			return result, fmt.Errorf("agentloop: complete: %w", err)
-		}
-		result.Steps = step
-		result.Usage.InputTokens += response.Usage.InputTokens
-		result.Usage.OutputTokens += response.Usage.OutputTokens
-		messages = append(messages, Message{Role: "assistant", Content: response.Content, ToolCalls: response.ToolCalls})
-		result.Messages = messages
-		if len(response.ToolCalls) == 0 {
-			result.Output, result.Messages = response.Content, messages
-			return result, nil
-		}
-		for _, call := range response.ToolCalls {
-			tool, ok := tools[call.Name]
-			if !ok {
-				return result, fmt.Errorf("agentloop: unknown tool %q", call.Name)
-			}
-			output, err := tool.Execute(ctx, call.Arguments)
-			if err != nil {
-				return result, fmt.Errorf("agentloop: tool %q: %w", call.Name, err)
-			}
-			encoded, err := json.Marshal(output)
-			if err != nil {
-				return result, fmt.Errorf("agentloop: encode tool %q output: %w", call.Name, err)
-			}
-			messages = append(messages, Message{Role: "tool", Content: string(encoded), ToolCallID: call.ID})
-			result.Messages = messages
-		}
-	}
-	return result, fmt.Errorf("agentloop: reached max steps (%d)", maxSteps)
+	return a.NewSession().Run(ctx, input)
 }
