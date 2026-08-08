@@ -43,6 +43,16 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 		messages = append(messages, openAIMessage{Role: message.Role, Content: message.Content, ToolCalls: toOpenAIToolCalls(message.ToolCalls), ToolCallID: message.ToolCallID})
 	}
 	payload := openAIRequest{Model: request.Model, Messages: messages, ReasoningEffort: request.ReasoningEffort}
+	if len(request.OutputSchema) > 0 {
+		payload.ResponseFormat = &openAIResponseFormat{
+			Type: "json_schema",
+			JSONSchema: openAIJSONSchema{
+				Name:   "response",
+				Schema: request.OutputSchema,
+				Strict: true,
+			},
+		}
+	}
 	for _, tool := range request.Tools {
 		payload.Tools = append(payload.Tools, openAITool{Type: "function", Function: tool})
 	}
@@ -85,10 +95,22 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 }
 
 type openAIRequest struct {
-	Model           string          `json:"model"`
-	Messages        []openAIMessage `json:"messages"`
-	Tools           []openAITool    `json:"tools,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	Model           string                `json:"model"`
+	Messages        []openAIMessage       `json:"messages"`
+	Tools           []openAITool          `json:"tools,omitempty"`
+	ReasoningEffort string                `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *openAIResponseFormat `json:"response_format,omitempty"`
+}
+
+type openAIResponseFormat struct {
+	Type       string           `json:"type"`
+	JSONSchema openAIJSONSchema `json:"json_schema"`
+}
+
+type openAIJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 type openAIMessage struct {

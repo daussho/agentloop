@@ -40,7 +40,7 @@ func TestAgentRunsToolLoop(t *testing.T) {
 		{ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":21}`)}}},
 		{Content: "42", Usage: Usage{InputTokens: 3, OutputTokens: 2}},
 	}}
-	result, err := (Agent{Provider: provider, Model: "test", Tools: []Tool{testTool{}}}).Run(context.Background(), "double 21")
+	result, err := (Agent{Provider: provider, Model: "test", OutputSchema: json.RawMessage(`{"type":"string"}`), Tools: []Tool{testTool{}}}).Run(context.Background(), "double 21")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +49,9 @@ func TestAgentRunsToolLoop(t *testing.T) {
 	}
 	if got := provider.requests[1].Messages[2].Content; got != `{"result":42}` {
 		t.Fatalf("tool output = %q", got)
+	}
+	if got := string(provider.requests[1].OutputSchema); got != `{"type":"string"}` {
+		t.Fatalf("output schema = %q", got)
 	}
 }
 
@@ -63,6 +66,13 @@ func TestAgentStopsAtMaxSteps(t *testing.T) {
 func TestAgentRejectsNegativeMaxSteps(t *testing.T) {
 	_, err := (Agent{Provider: &fakeProvider{}, Model: "test", MaxSteps: -1}).Run(context.Background(), "run")
 	if err == nil || err.Error() != "agentloop: max steps cannot be negative" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAgentRejectsInvalidOutputSchema(t *testing.T) {
+	_, err := (Agent{Provider: &fakeProvider{}, Model: "test", OutputSchema: []byte(`{`)}).Run(context.Background(), "run")
+	if err == nil || err.Error() != "agentloop: output schema must be valid JSON" {
 		t.Fatalf("error = %v", err)
 	}
 }

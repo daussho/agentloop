@@ -29,7 +29,7 @@ func TestOpenAICompatibleProviderTranslatesToolCalls(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if r.URL.Path != "/chat/completions" || !strings.Contains(string(body), `"arguments":"{\"value\":21}"`) {
+		if r.URL.Path != "/chat/completions" || !strings.Contains(string(body), `"arguments":"{\"value\":21}"`) || !strings.Contains(string(body), `"response_format":{"type":"json_schema","json_schema":{"name":"response","schema":{"type":"object"},"strict":true}}`) {
 			t.Fatalf("unexpected request: %s %s", r.URL, body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -38,7 +38,7 @@ func TestOpenAICompatibleProviderTranslatesToolCalls(t *testing.T) {
 	defer server.Close()
 
 	provider := NewOpenAICompatibleProvider(WithBaseURL(server.URL), WithKey("key"))
-	response, err := provider.Complete(context.Background(), Request{Model: "test", Messages: []Message{{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: []byte(`{"value":21}`)}}}}})
+	response, err := provider.Complete(context.Background(), Request{Model: "test", OutputSchema: []byte(`{"type":"object"}`), Messages: []Message{{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: []byte(`{"value":21}`)}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

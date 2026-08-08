@@ -2,6 +2,7 @@ package agentloop
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,24 @@ func TestSessionRetainsMessagesBetweenRuns(t *testing.T) {
 	}
 	if got := provider.requests[1].Messages; len(got) != 3 || got[0].Content != "one" || got[2].Content != "two" {
 		t.Fatalf("second request messages = %+v", got)
+	}
+}
+
+func TestSessionEmitsEvents(t *testing.T) {
+	provider := &fakeProvider{responses: []Response{
+		{ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: []byte(`{"value":2}`)}}},
+		{Content: "done"},
+	}}
+	var events []EventType
+	session := (Agent{Provider: provider, Model: "test", Tools: []Tool{testTool{}}, EventHandler: func(event Event) {
+		events = append(events, event.Type)
+	}}).NewSession()
+	if _, err := session.Run(context.Background(), "run"); err != nil {
+		t.Fatal(err)
+	}
+	want := []EventType{EventModelRequest, EventModelResponse, EventToolCall, EventToolResult, EventModelRequest, EventModelResponse, EventCompleted}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %v, want %v", events, want)
 	}
 }
 

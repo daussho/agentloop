@@ -9,6 +9,12 @@ agent := agentloop.NewOpenAICompatibleAgent(
     agentloop.WithModel("gpt-5"),
     agentloop.WithSystemPrompt("Solve the task using available tools."),
     agentloop.WithReasoningEffort(agentloop.ReasoningEffortMedium),
+    agentloop.WithOutputSchema(json.RawMessage(`{
+        "type": "object",
+        "properties": {"title": {"type": "string"}, "body": {"type": "string"}},
+        "required": ["title", "body"],
+        "additionalProperties": false
+    }`)),
     agentloop.WithTools(myTool),
     agentloop.WithMaxSteps(20),
 )
@@ -25,8 +31,20 @@ result, err := agent.Run(ctx, "Complete the task")
 | `WithModel(model)` | Yes | Model used for completions. |
 | `WithSystemPrompt(prompt)` | No | System instruction sent before conversation messages. |
 | `WithReasoningEffort(effort)` | No | Provider reasoning setting: `ReasoningEffortLow`, `ReasoningEffortMedium`, or `ReasoningEffortHigh`. |
+| `WithOutputSchema(schema)` | No | JSON Schema enforced by providers that support OpenAI structured outputs. |
 | `WithTools(tools...)` | No | Tools the model may call. |
 | `WithMaxSteps(n)` | No | Maximum model/tool-loop iterations; defaults to `20` and cannot be negative. |
+| `WithEventHandler(handler)` | No | Synchronous callback for model, tool, error, and completion events. |
+
+When tools are used, the output schema is sent on every model request. Tool arguments follow each tool's own schema; the structured output is the final assistant response in `result.Output`.
+
+Use an event handler to observe a running session:
+
+```go
+agentloop.WithEventHandler(func(event agentloop.Event) {
+    log.Printf("step=%d type=%s", event.Step, event.Type)
+})
+```
 
 For a multi-turn conversation, use a session. Concurrent calls to `Session.Run` wait and execute in order.
 

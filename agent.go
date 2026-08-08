@@ -39,6 +39,7 @@ type Request struct {
 	Model           string
 	SystemPrompt    string
 	ReasoningEffort string
+	OutputSchema    json.RawMessage
 	Messages        []Message
 	Tools           []ToolDefinition
 }
@@ -61,13 +62,38 @@ type Result struct {
 	Usage    Usage
 }
 
+type EventType string
+
+const (
+	EventModelRequest  EventType = "model_request"
+	EventModelResponse EventType = "model_response"
+	EventToolCall      EventType = "tool_call"
+	EventToolResult    EventType = "tool_result"
+	EventError         EventType = "error"
+	EventCompleted     EventType = "completed"
+)
+
+// Event describes an agent-loop state transition.
+type Event struct {
+	Type     EventType
+	Step     int
+	Content  string
+	ToolCall ToolCall
+	Err      error
+}
+
+// EventHandler receives session events synchronously.
+type EventHandler func(Event)
+
 type Agent struct {
 	Provider        Provider
 	Model           string
 	SystemPrompt    string
 	ReasoningEffort string
+	OutputSchema    json.RawMessage
 	Tools           []Tool
 	MaxSteps        int
+	EventHandler    EventHandler
 }
 
 const (
@@ -85,8 +111,10 @@ type config struct {
 	model           string
 	systemPrompt    string
 	reasoningEffort string
+	outputSchema    json.RawMessage
 	tools           []Tool
 	maxSteps        int
+	eventHandler    EventHandler
 }
 
 func WithBaseURL(baseURL string) Option {
@@ -109,12 +137,21 @@ func WithReasoningEffort(effort string) Option {
 	return func(config *config) { config.reasoningEffort = effort }
 }
 
+// WithOutputSchema requests strict JSON-schema output for the final response.
+func WithOutputSchema(schema json.RawMessage) Option {
+	return func(config *config) { config.outputSchema = append(json.RawMessage(nil), schema...) }
+}
+
 func WithTools(tools ...Tool) Option {
 	return func(config *config) { config.tools = append(config.tools, tools...) }
 }
 
 func WithMaxSteps(maxSteps int) Option {
 	return func(config *config) { config.maxSteps = maxSteps }
+}
+
+func WithEventHandler(handler EventHandler) Option {
+	return func(config *config) { config.eventHandler = handler }
 }
 
 // NewOpenAICompatibleAgent builds an agent backed by an OpenAI-compatible API.
@@ -124,8 +161,10 @@ func NewOpenAICompatibleAgent(options ...Option) *Agent {
 		Provider:        NewOpenAICompatibleProvider(options...),
 		SystemPrompt:    config.systemPrompt,
 		ReasoningEffort: config.reasoningEffort,
+		OutputSchema:    config.outputSchema,
 		Tools:           config.tools,
 		MaxSteps:        config.maxSteps,
+		EventHandler:    config.eventHandler,
 	}
 }
 

@@ -42,7 +42,9 @@ func (s *Session) Run(ctx context.Context, input string) (Result, error) {
 func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	a := s.agent
 	if a.Provider == nil {
-		return Result{}, errors.New("agentloop: provider is required")
+		err := errors.New("agentloop: provider is required")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
 	}
 	model := a.Model
 	if model == "" {
@@ -50,12 +52,21 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 			model = configured.DefaultModel()
 		}
 	}
+	if len(a.OutputSchema) > 0 && !json.Valid(a.OutputSchema) {
+		err := errors.New("agentloop: output schema must be valid JSON")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
+	}
 	if model == "" {
-		return Result{}, errors.New("agentloop: model is required")
+		err := errors.New("agentloop: model is required")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
 	}
 	maxSteps := a.MaxSteps
 	if maxSteps < 0 {
-		return Result{}, errors.New("agentloop: max steps cannot be negative")
+		err := errors.New("agentloop: max steps cannot be negative")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
 	}
 	if maxSteps == 0 {
 		maxSteps = 20
@@ -66,10 +77,14 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	for _, tool := range a.Tools {
 		definition := tool.Definition()
 		if definition.Name == "" {
-			return Result{}, errors.New("agentloop: tool name is required")
+			err := errors.New("agentloop: tool name is required")
+			s.emit(Event{Type: EventError, Err: err})
+			return Result{}, err
 		}
 		if _, exists := tools[definition.Name]; exists {
-			return Result{}, fmt.Errorf("agentloop: duplicate tool %q", definition.Name)
+			err := fmt.Errorf("agentloop: duplicate tool %q", definition.Name)
+			s.emit(Event{Type: EventError, Err: err})
+			return Result{}, err
 		}
 		tools[definition.Name] = tool
 		definitions = append(definitions, definition)
@@ -78,8 +93,10 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	messages := append(copyMessages(s.messages), Message{Role: "user", Content: input})
 	result := Result{Messages: messages}
 	for step := 1; step <= maxSteps; step++ {
-		response, err := a.Provider.Complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, Messages: messages, Tools: definitions})
+		s.emit(Event{Type: EventModelRequest, Step: step})
+		response, err := a.Provider.Complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: definitions})
 		if err != nil {
+			s.emit(Event{Type: EventError, Step: step, Err: err})
 			return result, fmt.Errorf("agentloop: complete: %w", err)
 		}
 		result.Steps = step
@@ -87,28 +104,43 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 		result.Usage.OutputTokens += response.Usage.OutputTokens
 		messages = append(messages, Message{Role: "assistant", Content: response.Content, ToolCalls: response.ToolCalls})
 		result.Messages = messages
+		s.emit(Event{Type: EventModelResponse, Step: step, Content: response.Content})
 		if len(response.ToolCalls) == 0 {
 			result.Output, result.Messages = response.Content, messages
+			s.emit(Event{Type: EventCompleted, Step: step, Content: response.Content})
 			return result, nil
 		}
 		for _, call := range response.ToolCalls {
+			s.emit(Event{Type: EventToolCall, Step: step, ToolCall: call})
 			tool, ok := tools[call.Name]
 			if !ok {
+				s.emit(Event{Type: EventError, Step: step, ToolCall: call, Err: fmt.Errorf("unknown tool %q", call.Name)})
 				return result, fmt.Errorf("agentloop: unknown tool %q", call.Name)
 			}
 			output, err := tool.Execute(ctx, call.Arguments)
 			if err != nil {
+				s.emit(Event{Type: EventError, Step: step, ToolCall: call, Err: err})
 				return result, fmt.Errorf("agentloop: tool %q: %w", call.Name, err)
 			}
 			encoded, err := json.Marshal(output)
 			if err != nil {
+				s.emit(Event{Type: EventError, Step: step, ToolCall: call, Err: err})
 				return result, fmt.Errorf("agentloop: encode tool %q output: %w", call.Name, err)
 			}
 			messages = append(messages, Message{Role: "tool", Content: string(encoded), ToolCallID: call.ID})
 			result.Messages = messages
+			s.emit(Event{Type: EventToolResult, Step: step, ToolCall: call, Content: string(encoded)})
 		}
 	}
-	return result, fmt.Errorf("agentloop: reached max steps (%d)", maxSteps)
+	err := fmt.Errorf("agentloop: reached max steps (%d)", maxSteps)
+	s.emit(Event{Type: EventError, Step: result.Steps, Err: err})
+	return result, err
+}
+
+func (s *Session) emit(event Event) {
+	if s.agent.EventHandler != nil {
+		s.agent.EventHandler(event)
+	}
 }
 
 func copyMessages(messages []Message) []Message {
