@@ -46,3 +46,10 @@ func TestOpenAICompatibleProviderTranslatesToolCalls(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
+
+func TestOpenAICompatibleProviderRequiresBaseURL(t *testing.T) {
+	_, err := NewOpenAICompatibleProvider().Complete(context.Background(), Request{Model: "test"})
+	if err == nil || err.Error() != "base URL is required" {
+		t.Fatalf("error = %v", err)
+	}
+}

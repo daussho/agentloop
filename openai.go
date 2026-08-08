@@ -32,6 +32,9 @@ func (p *OpenAICompatibleProvider) DefaultModel() string {
 }
 
 func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request) (Response, error) {
+	if p.BaseURL == "" {
+		return Response{}, fmt.Errorf("base URL is required")
+	}
 	messages := make([]openAIMessage, 0, len(request.Messages)+1)
 	if request.SystemPrompt != "" {
 		messages = append(messages, openAIMessage{Role: "system", Content: request.SystemPrompt})

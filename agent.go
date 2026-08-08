@@ -70,6 +70,12 @@ type Agent struct {
 	MaxSteps        int
 }
 
+const (
+	ReasoningEffortLow    = "low"
+	ReasoningEffortMedium = "medium"
+	ReasoningEffortHigh   = "high"
+)
+
 // Option configures an OpenAI-compatible agent or provider.
 type Option func(*config)
 

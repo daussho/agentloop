@@ -54,6 +54,9 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 		return Result{}, errors.New("agentloop: model is required")
 	}
 	maxSteps := a.MaxSteps
+	if maxSteps < 0 {
+		return Result{}, errors.New("agentloop: max steps cannot be negative")
+	}
 	if maxSteps == 0 {
 		maxSteps = 20
 	}

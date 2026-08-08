@@ -8,13 +8,25 @@ agent := agentloop.NewOpenAICompatibleAgent(
     agentloop.WithKey(os.Getenv("OPENAI_API_KEY")),
     agentloop.WithModel("gpt-5"),
     agentloop.WithSystemPrompt("Solve the task using available tools."),
-    agentloop.WithReasoningEffort("medium"),
+    agentloop.WithReasoningEffort(agentloop.ReasoningEffortMedium),
     agentloop.WithTools(myTool),
     agentloop.WithMaxSteps(20),
 )
 
 result, err := agent.Run(ctx, "Complete the task")
 ```
+
+## Configuration
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `WithBaseURL(url)` | Yes | OpenAI-compatible API base URL, such as `https://api.openai.com/v1`. |
+| `WithKey(key)` | Usually | API key sent as a Bearer token. |
+| `WithModel(model)` | Yes | Model used for completions. |
+| `WithSystemPrompt(prompt)` | No | System instruction sent before conversation messages. |
+| `WithReasoningEffort(effort)` | No | Provider reasoning setting: `ReasoningEffortLow`, `ReasoningEffortMedium`, or `ReasoningEffortHigh`. |
+| `WithTools(tools...)` | No | Tools the model may call. |
+| `WithMaxSteps(n)` | No | Maximum model/tool-loop iterations; defaults to `20` and cannot be negative. |
 
 For a multi-turn conversation, use a session. Concurrent calls to `Session.Run` wait and execute in order.
 

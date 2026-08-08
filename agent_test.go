@@ -60,6 +60,13 @@ func TestAgentStopsAtMaxSteps(t *testing.T) {
 	}
 }
 
+func TestAgentRejectsNegativeMaxSteps(t *testing.T) {
+	_, err := (Agent{Provider: &fakeProvider{}, Model: "test", MaxSteps: -1}).Run(context.Background(), "run")
+	if err == nil || err.Error() != "agentloop: max steps cannot be negative" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestAgentRejectsUnknownTool(t *testing.T) {
 	provider := &fakeProvider{responses: []Response{{ToolCalls: []ToolCall{{Name: "missing"}}}}}
 	_, err := (Agent{Provider: provider, Model: "test"}).Run(context.Background(), "run")
