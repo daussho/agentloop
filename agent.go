@@ -3,6 +3,7 @@ package agentloop
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // Provider completes a conversation using a model provider.
@@ -93,6 +94,9 @@ type Agent struct {
 	OutputSchema    json.RawMessage
 	Tools           []Tool
 	MaxSteps        int
+	RequestTimeout  time.Duration
+	MaxRetries      int
+	ToolTimeout     time.Duration
 	EventHandler    EventHandler
 }
 
@@ -100,21 +104,31 @@ const (
 	ReasoningEffortLow    = "low"
 	ReasoningEffortMedium = "medium"
 	ReasoningEffortHigh   = "high"
+
+	DefaultRequestTimeout = 2 * time.Minute
+	DefaultMaxRetries     = 2
+	DefaultToolTimeout    = 30 * time.Second
 )
 
 // Option configures an OpenAI-compatible agent or provider.
 type Option func(*config)
 
 type config struct {
-	baseURL         string
-	apiKey          string
-	model           string
-	systemPrompt    string
-	reasoningEffort string
-	outputSchema    json.RawMessage
-	tools           []Tool
-	maxSteps        int
-	eventHandler    EventHandler
+	baseURL           string
+	apiKey            string
+	model             string
+	systemPrompt      string
+	reasoningEffort   string
+	outputSchema      json.RawMessage
+	tools             []Tool
+	maxSteps          int
+	requestTimeout    time.Duration
+	maxRetries        int
+	toolTimeout       time.Duration
+	requestTimeoutSet bool
+	maxRetriesSet     bool
+	toolTimeoutSet    bool
+	eventHandler      EventHandler
 }
 
 func WithBaseURL(baseURL string) Option {
@@ -150,6 +164,27 @@ func WithMaxSteps(maxSteps int) Option {
 	return func(config *config) { config.maxSteps = maxSteps }
 }
 
+// WithRequestTimeout limits each provider call. Zero disables the limit.
+func WithRequestTimeout(timeout time.Duration) Option {
+	return func(config *config) {
+		config.requestTimeout, config.requestTimeoutSet = timeout, true
+	}
+}
+
+// WithMaxRetries retries transient provider failures. Zero disables retries.
+func WithMaxRetries(retries int) Option {
+	return func(config *config) {
+		config.maxRetries, config.maxRetriesSet = retries, true
+	}
+}
+
+// WithToolTimeout limits each tool call. Zero disables the limit.
+func WithToolTimeout(timeout time.Duration) Option {
+	return func(config *config) {
+		config.toolTimeout, config.toolTimeoutSet = timeout, true
+	}
+}
+
 func WithEventHandler(handler EventHandler) Option {
 	return func(config *config) { config.eventHandler = handler }
 }
@@ -157,6 +192,15 @@ func WithEventHandler(handler EventHandler) Option {
 // NewOpenAICompatibleAgent builds an agent backed by an OpenAI-compatible API.
 func NewOpenAICompatibleAgent(options ...Option) *Agent {
 	config := applyOptions(options)
+	if !config.requestTimeoutSet {
+		config.requestTimeout = DefaultRequestTimeout
+	}
+	if !config.maxRetriesSet {
+		config.maxRetries = DefaultMaxRetries
+	}
+	if !config.toolTimeoutSet {
+		config.toolTimeout = DefaultToolTimeout
+	}
 	return &Agent{
 		Provider:        NewOpenAICompatibleProvider(options...),
 		SystemPrompt:    config.systemPrompt,
@@ -164,6 +208,9 @@ func NewOpenAICompatibleAgent(options ...Option) *Agent {
 		OutputSchema:    config.outputSchema,
 		Tools:           config.tools,
 		MaxSteps:        config.maxSteps,
+		RequestTimeout:  config.requestTimeout,
+		MaxRetries:      config.maxRetries,
+		ToolTimeout:     config.toolTimeout,
 		EventHandler:    config.eventHandler,
 	}
 }

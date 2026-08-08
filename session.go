@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Session retains a conversation's messages between runs. Runs are serialized.
@@ -68,6 +69,21 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 		s.emit(Event{Type: EventError, Err: err})
 		return Result{}, err
 	}
+	if a.RequestTimeout < 0 {
+		err := errors.New("agentloop: request timeout cannot be negative")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
+	}
+	if a.ToolTimeout < 0 {
+		err := errors.New("agentloop: tool timeout cannot be negative")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
+	}
+	if a.MaxRetries < 0 {
+		err := errors.New("agentloop: max retries cannot be negative")
+		s.emit(Event{Type: EventError, Err: err})
+		return Result{}, err
+	}
 	if maxSteps == 0 {
 		maxSteps = 20
 	}
@@ -94,7 +110,7 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	result := Result{Messages: messages}
 	for step := 1; step <= maxSteps; step++ {
 		s.emit(Event{Type: EventModelRequest, Step: step})
-		response, err := a.Provider.Complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: definitions})
+		response, err := s.complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: definitions})
 		if err != nil {
 			s.emit(Event{Type: EventError, Step: step, Err: err})
 			return result, fmt.Errorf("agentloop: complete: %w", err)
@@ -117,7 +133,16 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 				s.emit(Event{Type: EventError, Step: step, ToolCall: call, Err: fmt.Errorf("unknown tool %q", call.Name)})
 				return result, fmt.Errorf("agentloop: unknown tool %q", call.Name)
 			}
-			output, err := tool.Execute(ctx, call.Arguments)
+			toolContext := ctx
+			cancel := func() {}
+			if a.ToolTimeout > 0 {
+				toolContext, cancel = context.WithTimeout(ctx, a.ToolTimeout)
+			}
+			output, err := tool.Execute(toolContext, call.Arguments)
+			if err == nil && toolContext.Err() != nil {
+				err = toolContext.Err()
+			}
+			cancel()
 			if err != nil {
 				s.emit(Event{Type: EventError, Step: step, ToolCall: call, Err: err})
 				return result, fmt.Errorf("agentloop: tool %q: %w", call.Name, err)
@@ -135,6 +160,41 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	err := fmt.Errorf("agentloop: reached max steps (%d)", maxSteps)
 	s.emit(Event{Type: EventError, Step: result.Steps, Err: err})
 	return result, err
+}
+
+func (s *Session) complete(ctx context.Context, request Request) (Response, error) {
+	for attempt := 0; ; attempt++ {
+		requestContext := ctx
+		cancel := func() {}
+		if s.agent.RequestTimeout > 0 {
+			requestContext, cancel = context.WithTimeout(ctx, s.agent.RequestTimeout)
+		}
+		response, err := s.agent.Provider.Complete(requestContext, request)
+		cancel()
+		if err == nil || attempt == s.agent.MaxRetries || !isRetryable(err) || ctx.Err() != nil {
+			return response, err
+		}
+		if err := waitRetry(ctx, attempt); err != nil {
+			return Response{}, err
+		}
+	}
+}
+
+func isRetryable(err error) bool {
+	var retryable interface{ Retryable() bool }
+	return errors.As(err, &retryable) && retryable.Retryable()
+}
+
+func waitRetry(ctx context.Context, attempt int) error {
+	delay := 100 * time.Millisecond * time.Duration(1<<attempt)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *Session) emit(event Event) {

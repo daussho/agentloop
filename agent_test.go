@@ -100,6 +100,18 @@ func TestAgentUsesProviderDefaultModel(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleAgentResilienceDefaults(t *testing.T) {
+	agent := NewOpenAICompatibleAgent()
+	if agent.RequestTimeout != DefaultRequestTimeout || agent.MaxRetries != DefaultMaxRetries || agent.ToolTimeout != DefaultToolTimeout {
+		t.Fatalf("unexpected defaults: %+v", agent)
+	}
+
+	agent = NewOpenAICompatibleAgent(WithRequestTimeout(0), WithMaxRetries(0), WithToolTimeout(0))
+	if agent.RequestTimeout != 0 || agent.MaxRetries != 0 || agent.ToolTimeout != 0 {
+		t.Fatalf("expected explicit zero values: %+v", agent)
+	}
+}
+
 func ExampleAgent_Run() {
 	provider := &fakeProvider{responses: []Response{{Content: "done"}}}
 	result, _ := (Agent{Provider: provider, Model: "example"}).Run(context.Background(), "finish this")

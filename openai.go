@@ -74,7 +74,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 	}
 	httpResponse, err := httpClient.Do(httpRequest)
 	if err != nil {
-		return Response{}, fmt.Errorf("send request: %w", err)
+		return Response{}, &retryableError{err}
 	}
 	defer httpResponse.Body.Close()
 	responseBody, err := io.ReadAll(httpResponse.Body)
@@ -82,7 +82,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 		return Response{}, fmt.Errorf("read response: %w", err)
 	}
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices {
-		return Response{}, fmt.Errorf("API returned %s: %s", httpResponse.Status, strings.TrimSpace(string(responseBody)))
+		return Response{}, &APIError{StatusCode: httpResponse.StatusCode, Status: httpResponse.Status, Body: strings.TrimSpace(string(responseBody))}
 	}
 	var payloadResponse openAIResponse
 	if err := json.Unmarshal(responseBody, &payloadResponse); err != nil {
@@ -93,6 +93,25 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 	}
 	return Response{Content: payloadResponse.Choices[0].Message.Content, ToolCalls: fromOpenAIToolCalls(payloadResponse.Choices[0].Message.ToolCalls), Usage: Usage{InputTokens: payloadResponse.Usage.PromptTokens, OutputTokens: payloadResponse.Usage.CompletionTokens}}, nil
 }
+
+// APIError is a non-success response from an OpenAI-compatible API.
+type APIError struct {
+	StatusCode int
+	Status     string
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API returned %s: %s", e.Status, e.Body)
+}
+
+func (e *APIError) Retryable() bool {
+	return e.StatusCode == http.StatusTooManyRequests || e.StatusCode >= http.StatusInternalServerError
+}
+
+type retryableError struct{ error }
+
+func (retryableError) Retryable() bool { return true }
 
 type openAIRequest struct {
 	Model           string                `json:"model"`

@@ -34,9 +34,14 @@ result, err := agent.Run(ctx, "Complete the task")
 | `WithOutputSchema(schema)` | No | JSON Schema enforced by providers that support OpenAI structured outputs. |
 | `WithTools(tools...)` | No | Tools the model may call. |
 | `WithMaxSteps(n)` | No | Maximum model/tool-loop iterations; defaults to `20` and cannot be negative. |
+| `WithRequestTimeout(timeout)` | No | Timeout for each provider call; defaults to 2 minutes. Set zero to disable it. |
+| `WithMaxRetries(n)` | No | Retries transient provider failures (`429`, `5xx`, and network errors); defaults to 2. Set zero to disable retries. |
+| `WithToolTimeout(timeout)` | No | Timeout for each tool call; defaults to 30 seconds. Set zero to disable it. |
 | `WithEventHandler(handler)` | No | Synchronous callback for model, tool, error, and completion events. |
 
 When tools are used, the output schema is sent on every model request. Tool arguments follow each tool's own schema; the structured output is the final assistant response in `result.Output`.
+
+Retries use a 100ms exponential backoff and never retry tools. A timeout cancels the context passed to the provider or tool; implementations must honor that context.
 
 Use an event handler to observe a running session:
 

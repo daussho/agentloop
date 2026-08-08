@@ -2,6 +2,8 @@ package agentloop
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"reflect"
 	"sync"
 	"testing"
@@ -37,6 +39,60 @@ func TestSessionEmitsEvents(t *testing.T) {
 	want := []EventType{EventModelRequest, EventModelResponse, EventToolCall, EventToolResult, EventModelRequest, EventModelResponse, EventCompleted}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
+type retryError struct{}
+
+func (retryError) Error() string   { return "temporary failure" }
+func (retryError) Retryable() bool { return true }
+
+type retryProvider struct{ calls int }
+
+func (p *retryProvider) Complete(_ context.Context, _ Request) (Response, error) {
+	p.calls++
+	if p.calls == 1 {
+		return Response{}, retryError{}
+	}
+	return Response{Content: "done"}, nil
+}
+
+func TestSessionRetriesTransientProviderError(t *testing.T) {
+	provider := &retryProvider{}
+	result, err := (Agent{Provider: provider, Model: "test", MaxRetries: 1}).Run(context.Background(), "run")
+	if err != nil || result.Output != "done" || provider.calls != 2 {
+		t.Fatalf("result = %+v, err = %v, calls = %d", result, err, provider.calls)
+	}
+}
+
+type contextWaitProvider struct{}
+
+func (contextWaitProvider) Complete(ctx context.Context, _ Request) (Response, error) {
+	<-ctx.Done()
+	return Response{}, ctx.Err()
+}
+
+func TestSessionAppliesRequestTimeout(t *testing.T) {
+	_, err := (Agent{Provider: contextWaitProvider{}, Model: "test", RequestTimeout: 10 * time.Millisecond}).Run(context.Background(), "run")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+type contextWaitTool struct{}
+
+func (contextWaitTool) Definition() ToolDefinition { return ToolDefinition{Name: "wait"} }
+
+func (contextWaitTool) Execute(ctx context.Context, _ json.RawMessage) (any, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestSessionAppliesToolTimeout(t *testing.T) {
+	provider := &fakeProvider{responses: []Response{{ToolCalls: []ToolCall{{Name: "wait"}}}}}
+	_, err := (Agent{Provider: provider, Model: "test", ToolTimeout: 10 * time.Millisecond, Tools: []Tool{contextWaitTool{}}}).Run(context.Background(), "run")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v", err)
 	}
 }
 
