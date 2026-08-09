@@ -33,7 +33,7 @@ func TestOpenAICompatibleProviderTranslatesToolCalls(t *testing.T) {
 			t.Fatalf("unexpected request: %s %s", r.URL, body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"done","tool_calls":[{"id":"call_2","type":"function","function":{"name":"double","arguments":"{\"value\":42}"}}]}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"done","tool_calls":[{"id":"call_2","type":"function","function":{"name":"double","arguments":"{\"value\":42}"}}]}}],"usage":{"prompt_tokens":5,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}}}`))
 	}))
 	defer server.Close()
 
@@ -44,6 +44,23 @@ func TestOpenAICompatibleProviderTranslatesToolCalls(t *testing.T) {
 	}
 	if response.ToolCalls[0].Name != "double" || string(response.ToolCalls[0].Arguments) != `{"value":42}` || response.Usage.InputTokens != 5 {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+	if response.Usage.CachedTokens != 2 {
+		t.Fatalf("cached tokens = %d, want 2", response.Usage.CachedTokens)
+	}
+}
+
+func TestOpenAICompatibleProviderParsesOpenRouterCacheUsage(t *testing.T) {
+	provider := NewOpenAICompatibleProvider(WithBaseURL("http://example.test"))
+	provider.Client = &http.Client{Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return response(`{"choices":[{"message":{"content":"done"}}],"usage":{"prompt_tokens":10,"completion_tokens":4,"cache_read_input_tokens":6,"cache_creation_input_tokens":3,"cost":0.00042}}`), nil
+	})}
+	response, err := provider.Complete(context.Background(), Request{Model: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Usage.InputTokens != 10 || response.Usage.OutputTokens != 4 || response.Usage.CachedTokens != 6 || response.Usage.CacheCreationTokens != 3 || response.Usage.Cost != 0.00042 {
+		t.Fatalf("unexpected usage: %+v", response.Usage)
 	}
 }
 
