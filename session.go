@@ -118,9 +118,12 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 		result.Steps = step
 		result.Usage.InputTokens += response.Usage.InputTokens
 		result.Usage.OutputTokens += response.Usage.OutputTokens
+		result.Usage.CachedTokens += response.Usage.CachedTokens
+		result.Usage.CacheCreationTokens += response.Usage.CacheCreationTokens
+		result.Usage.Cost += response.Usage.Cost
 		messages = append(messages, Message{Role: "assistant", Content: response.Content, ToolCalls: response.ToolCalls})
 		result.Messages = messages
-		s.emit(Event{Type: EventModelResponse, Step: step, Content: response.Content})
+		s.emit(Event{Type: EventModelResponse, Step: step, Content: response.Content, Usage: response.Usage})
 		if len(response.ToolCalls) == 0 {
 			result.Output, result.Messages = response.Content, messages
 			s.emit(Event{Type: EventCompleted, Step: step, Content: response.Content})

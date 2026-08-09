@@ -36,16 +36,29 @@ func (testTool) Execute(_ context.Context, input json.RawMessage) (any, error) {
 }
 
 func TestAgentRunsToolLoop(t *testing.T) {
+	var events []Event
 	provider := &fakeProvider{responses: []Response{
-		{ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":21}`)}}},
-		{Content: "42", Usage: Usage{InputTokens: 3, OutputTokens: 2}},
+		{ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":21}`)}}, Usage: Usage{InputTokens: 10, OutputTokens: 1, CachedTokens: 5, CacheCreationTokens: 2, Cost: 0.001}},
+		{Content: "42", Usage: Usage{InputTokens: 3, OutputTokens: 2, CachedTokens: 1, CacheCreationTokens: 4, Cost: 0.002}},
 	}}
-	result, err := (Agent{Provider: provider, Model: "test", OutputSchema: json.RawMessage(`{"type":"string"}`), Tools: []Tool{testTool{}}}).Run(context.Background(), "double 21")
+	result, err := (Agent{Provider: provider, Model: "test", OutputSchema: json.RawMessage(`{"type":"string"}`), Tools: []Tool{testTool{}}, EventHandler: func(event Event) { events = append(events, event) }}).Run(context.Background(), "double 21")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Output != "42" || result.Steps != 2 || result.Usage.InputTokens != 3 {
+	if result.Output != "42" || result.Steps != 2 || result.Usage.InputTokens != 13 {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.Usage.CachedTokens != 6 || result.Usage.CacheCreationTokens != 6 || result.Usage.Cost != 0.003 {
+		t.Fatalf("unexpected cache usage: %+v", result.Usage)
+	}
+	var lastResponseUsage Usage
+	for _, event := range events {
+		if event.Type == EventModelResponse {
+			lastResponseUsage = event.Usage
+		}
+	}
+	if lastResponseUsage.CachedTokens != 1 || lastResponseUsage.CacheCreationTokens != 4 {
+		t.Fatalf("unexpected per-step event usage: %+v", lastResponseUsage)
 	}
 	if got := provider.requests[1].Messages[2].Content; got != `{"result":42}` {
 		t.Fatalf("tool output = %q", got)

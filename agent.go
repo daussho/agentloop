@@ -52,8 +52,11 @@ type Response struct {
 }
 
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens         int     `json:"input_tokens"`
+	OutputTokens        int     `json:"output_tokens"`
+	CachedTokens        int     `json:"cached_tokens"`               // cache read (prompt_tokens_details.cached_tokens)
+	CacheCreationTokens int     `json:"cache_creation_input_tokens"` // cache write / creation
+	Cost                float64 `json:"cost"`                        // provider-computed cost in USD, when reported
 }
 
 type Result struct {
@@ -80,6 +83,7 @@ type Event struct {
 	Step     int
 	Content  string
 	ToolCall ToolCall
+	Usage    Usage
 	Err      error
 }
 

@@ -91,7 +91,18 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 	if len(payloadResponse.Choices) == 0 {
 		return Response{}, fmt.Errorf("decode response: no choices")
 	}
-	return Response{Content: payloadResponse.Choices[0].Message.Content, ToolCalls: fromOpenAIToolCalls(payloadResponse.Choices[0].Message.ToolCalls), Usage: Usage{InputTokens: payloadResponse.Usage.PromptTokens, OutputTokens: payloadResponse.Usage.CompletionTokens}}, nil
+	usage := payloadResponse.Usage
+	return Response{
+		Content:   payloadResponse.Choices[0].Message.Content,
+		ToolCalls: fromOpenAIToolCalls(payloadResponse.Choices[0].Message.ToolCalls),
+		Usage: Usage{
+			InputTokens:         usage.PromptTokens,
+			OutputTokens:        usage.CompletionTokens,
+			CachedTokens:        usage.CacheReadInputTokens + usage.PromptTokensDetails.CachedTokens,
+			CacheCreationTokens: usage.CacheCreationInputTokens,
+			Cost:                usage.Cost,
+		},
+	}, nil
 }
 
 // APIError is a non-success response from an OpenAI-compatible API.
@@ -177,7 +188,15 @@ type openAIResponse struct {
 		Message openAIMessage `json:"message"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
+		PromptTokensDetails struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+		// OpenRouter-style cache fields.
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		// Provider-computed cost in USD (OpenRouter), when the model is priced.
+		Cost float64 `json:"cost"`
 	} `json:"usage"`
 }
