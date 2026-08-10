@@ -12,18 +12,20 @@ import (
 
 // OpenAICompatibleProvider calls the OpenAI Chat Completions-compatible API.
 type OpenAICompatibleProvider struct {
-	BaseURL string
-	APIKey  string
-	Model   string
-	Client  *http.Client
+	BaseURL    string
+	APIKey     string
+	Model      string
+	Client     *http.Client
+	OpenRouter bool
 }
 
 func NewOpenAICompatibleProvider(options ...Option) *OpenAICompatibleProvider {
 	config := applyOptions(options)
 	return &OpenAICompatibleProvider{
-		BaseURL: strings.TrimRight(config.baseURL, "/"),
-		APIKey:  config.apiKey,
-		Model:   config.model,
+		BaseURL:    strings.TrimRight(config.baseURL, "/"),
+		APIKey:     config.apiKey,
+		Model:      config.model,
+		OpenRouter: config.openRouter,
 	}
 }
 
@@ -71,6 +73,9 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, request Request
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if p.APIKey != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+p.APIKey)
+	}
+	if p.OpenRouter && request.SessionID != "" {
+		httpRequest.Header.Set("x-session-id", request.SessionID)
 	}
 	httpResponse, err := httpClient.Do(httpRequest)
 	if err != nil {

@@ -70,3 +70,36 @@ func TestOpenAICompatibleProviderRequiresBaseURL(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestOpenAICompatibleProviderSessionHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		openRouter bool
+		sessionID  string
+		want       string
+	}{
+		{name: "sends with openrouter", openRouter: true, sessionID: "session-1", want: "session-1"},
+		{name: "omits without openrouter", sessionID: "session-1"},
+		{name: "omits empty session id", openRouter: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := []Option{WithBaseURL("http://example.test")}
+			if test.openRouter {
+				options = append(options, WithOpenRouter())
+			}
+			provider := NewOpenAICompatibleProvider(options...)
+			var got string
+			provider.Client = &http.Client{Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				got = request.Header.Get("x-session-id")
+				return response(`{"choices":[{"message":{"content":"done"}}]}`), nil
+			})}
+			if _, err := provider.Complete(context.Background(), Request{Model: "test", SessionID: test.sessionID}); err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("x-session-id = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
