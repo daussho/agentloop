@@ -20,9 +20,28 @@ type Session struct {
 	messages  []Message
 }
 
+type sessionConfig struct {
+	sessionID string
+}
+
+// SessionOption configures a new session.
+type SessionOption func(*sessionConfig)
+
+// WithSessionID uses a caller-provided ID for provider session affinity.
+func WithSessionID(sessionID string) SessionOption {
+	return func(config *sessionConfig) { config.sessionID = sessionID }
+}
+
 // NewSession starts a conversation that retains messages between runs.
-func (a Agent) NewSession() *Session {
-	return &Session{agent: a, sessionID: newSessionID()}
+func (a Agent) NewSession(options ...SessionOption) *Session {
+	config := sessionConfig{sessionID: newSessionID()}
+	for _, option := range options {
+		option(&config)
+	}
+	if config.sessionID == "" {
+		config.sessionID = newSessionID()
+	}
+	return &Session{agent: a, sessionID: config.sessionID}
 }
 
 // ResumeSession resumes a conversation with a caller-persisted session ID and

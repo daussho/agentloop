@@ -145,6 +145,13 @@ func TestSessionSessionIDIsStableAcrossStepsAndRuns(t *testing.T) {
 	}
 }
 
+func TestNewSessionUsesProvidedSessionID(t *testing.T) {
+	session := (Agent{}).NewSession(WithSessionID("conversation-1"))
+	if session.sessionID != "conversation-1" {
+		t.Fatalf("session ID = %q, want conversation-1", session.sessionID)
+	}
+}
+
 func TestResumeSessionRestoresHistoryAndCopiesInput(t *testing.T) {
 	history := []Message{
 		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":21}`)}}},
