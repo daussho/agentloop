@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -119,6 +120,70 @@ func (p *blockingProvider) Calls() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.calls
+}
+
+func TestSessionSessionIDIsStableAcrossStepsAndRuns(t *testing.T) {
+	provider := &fakeProvider{responses: []Response{
+		{ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":2}`)}}},
+		{Content: "done"},
+		{Content: "again"},
+	}}
+	session := (Agent{Provider: provider, Model: "test", Tools: []Tool{testTool{}}}).NewSession()
+	if session.sessionID == "" {
+		t.Fatal("NewSession did not generate a session ID")
+	}
+	if _, err := session.Run(context.Background(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Run(context.Background(), "two"); err != nil {
+		t.Fatal(err)
+	}
+	for i, request := range provider.requests {
+		if request.SessionID != session.sessionID {
+			t.Fatalf("request %d session ID = %q, want %q", i, request.SessionID, session.sessionID)
+		}
+	}
+}
+
+func TestNewSessionUsesProvidedSessionID(t *testing.T) {
+	session := (Agent{}).NewSession(WithSessionID("conversation-1"))
+	if session.sessionID != "conversation-1" {
+		t.Fatalf("session ID = %q, want conversation-1", session.sessionID)
+	}
+}
+
+func TestResumeSessionRestoresHistoryAndCopiesInput(t *testing.T) {
+	history := []Message{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":21}`)}}},
+		{Role: "tool", Content: `{"result":42}`, ToolCallID: "call_1"},
+	}
+	provider := &fakeProvider{responses: []Response{{Content: "done"}}}
+	session, err := (Agent{Provider: provider, Model: "test"}).ResumeSession("resumed-1", history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history[0].ToolCalls[0].Arguments = json.RawMessage(`{"value":999}`)
+	history[0].ToolCalls = append(history[0].ToolCalls, ToolCall{ID: "call_2", Name: "other"})
+
+	if _, err := session.Run(context.Background(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	got := provider.requests[0].Messages
+	if len(got) != 3 || got[0].Role != "assistant" || len(got[0].ToolCalls) != 1 || string(got[0].ToolCalls[0].Arguments) != `{"value":21}` || got[1].Role != "tool" || got[1].ToolCallID != "call_1" || got[2].Content != "continue" {
+		t.Fatalf("resumed messages = %+v", got)
+	}
+	if got := provider.requests[0].SessionID; got != "resumed-1" {
+		t.Fatalf("resumed session ID = %q, want resumed-1", got)
+	}
+}
+
+func TestResumeSessionValidatesSessionID(t *testing.T) {
+	if _, err := (Agent{Provider: &fakeProvider{}, Model: "test"}).ResumeSession("", nil); err == nil {
+		t.Fatal("expected error for empty session ID")
+	}
+	if _, err := (Agent{Provider: &fakeProvider{}, Model: "test"}).ResumeSession(strings.Repeat("x", 257), nil); err == nil {
+		t.Fatal("expected error for session ID over 256 characters")
+	}
 }
 
 func TestSessionSerializesRuns(t *testing.T) {

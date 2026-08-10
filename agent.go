@@ -43,6 +43,7 @@ type Request struct {
 	OutputSchema    json.RawMessage
 	Messages        []Message
 	Tools           []ToolDefinition
+	SessionID       string
 }
 
 type Response struct {
@@ -133,6 +134,7 @@ type config struct {
 	maxRetriesSet     bool
 	toolTimeoutSet    bool
 	eventHandler      EventHandler
+	openRouter        bool
 }
 
 func WithBaseURL(baseURL string) Option {
@@ -191,6 +193,12 @@ func WithToolTimeout(timeout time.Duration) Option {
 
 func WithEventHandler(handler EventHandler) Option {
 	return func(config *config) { config.eventHandler = handler }
+}
+
+// WithOpenRouter enables OpenRouter-specific behavior, such as sending the
+// x-session-id header for sticky routing.
+func WithOpenRouter() Option {
+	return func(config *config) { config.openRouter = true }
 }
 
 // NewOpenAICompatibleAgent builds an agent backed by an OpenAI-compatible API.

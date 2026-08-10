@@ -2,23 +2,66 @@ package agentloop
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
 
 // Session retains a conversation's messages between runs. Runs are serialized.
 type Session struct {
-	agent    Agent
-	mu       sync.Mutex
-	messages []Message
+	agent     Agent
+	mu        sync.Mutex
+	sessionID string
+	messages  []Message
+}
+
+type sessionConfig struct {
+	sessionID string
+}
+
+// SessionOption configures a new session.
+type SessionOption func(*sessionConfig)
+
+// WithSessionID uses a caller-provided ID for provider session affinity.
+func WithSessionID(sessionID string) SessionOption {
+	return func(config *sessionConfig) { config.sessionID = sessionID }
 }
 
 // NewSession starts a conversation that retains messages between runs.
-func (a Agent) NewSession() *Session {
-	return &Session{agent: a}
+func (a Agent) NewSession(options ...SessionOption) *Session {
+	config := sessionConfig{sessionID: newSessionID()}
+	for _, option := range options {
+		option(&config)
+	}
+	if config.sessionID == "" {
+		config.sessionID = newSessionID()
+	}
+	return &Session{agent: a, sessionID: config.sessionID}
+}
+
+// ResumeSession resumes a conversation with a caller-persisted session ID and
+// history. The messages are copied; the caller may reuse or mutate the input.
+func (a Agent) ResumeSession(sessionID string, messages []Message) (*Session, error) {
+	if sessionID == "" {
+		return nil, errors.New("agentloop: session ID is required")
+	}
+	if len(sessionID) > 256 {
+		return nil, errors.New("agentloop: session ID cannot exceed 256 characters")
+	}
+	return &Session{agent: a, sessionID: sessionID, messages: copyMessages(messages)}, nil
+}
+
+func newSessionID() string {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+	return hex.EncodeToString(id[:])
 }
 
 // Messages returns the conversation history.
@@ -110,7 +153,7 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	result := Result{Messages: messages}
 	for step := 1; step <= maxSteps; step++ {
 		s.emit(Event{Type: EventModelRequest, Step: step})
-		response, err := s.complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: definitions})
+		response, err := s.complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: definitions, SessionID: s.sessionID})
 		if err != nil {
 			s.emit(Event{Type: EventError, Step: step, Err: err})
 			return result, fmt.Errorf("agentloop: complete: %w", err)
@@ -207,5 +250,16 @@ func (s *Session) emit(event Event) {
 }
 
 func copyMessages(messages []Message) []Message {
-	return append([]Message(nil), messages...)
+	copied := make([]Message, len(messages))
+	for i, message := range messages {
+		if message.ToolCalls != nil {
+			message.ToolCalls = append([]ToolCall(nil), message.ToolCalls...)
+			for j, call := range message.ToolCalls {
+				call.Arguments = append(json.RawMessage(nil), call.Arguments...)
+				message.ToolCalls[j] = call
+			}
+		}
+		copied[i] = message
+	}
+	return copied
 }
