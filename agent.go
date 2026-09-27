@@ -92,17 +92,18 @@ type Event struct {
 type EventHandler func(Event)
 
 type Agent struct {
-	Provider        Provider
-	Model           string
-	SystemPrompt    string
-	ReasoningEffort string
-	OutputSchema    json.RawMessage
-	Tools           []Tool
-	MaxSteps        int
-	RequestTimeout  time.Duration
-	MaxRetries      int
-	ToolTimeout     time.Duration
-	EventHandler    EventHandler
+	Provider                Provider
+	Model                   string
+	SystemPrompt            string
+	ReasoningEffort         string
+	OutputSchema            json.RawMessage
+	Tools                   []Tool
+	MaxSteps                int
+	FinalResponseAtMaxSteps bool
+	RequestTimeout          time.Duration
+	MaxRetries              int
+	ToolTimeout             time.Duration
+	EventHandler            EventHandler
 }
 
 const (
@@ -119,22 +120,23 @@ const (
 type Option func(*config)
 
 type config struct {
-	baseURL           string
-	apiKey            string
-	model             string
-	systemPrompt      string
-	reasoningEffort   string
-	outputSchema      json.RawMessage
-	tools             []Tool
-	maxSteps          int
-	requestTimeout    time.Duration
-	maxRetries        int
-	toolTimeout       time.Duration
-	requestTimeoutSet bool
-	maxRetriesSet     bool
-	toolTimeoutSet    bool
-	eventHandler      EventHandler
-	openRouter        bool
+	baseURL                 string
+	apiKey                  string
+	model                   string
+	systemPrompt            string
+	reasoningEffort         string
+	outputSchema            json.RawMessage
+	tools                   []Tool
+	maxSteps                int
+	finalResponseAtMaxSteps bool
+	requestTimeout          time.Duration
+	maxRetries              int
+	toolTimeout             time.Duration
+	requestTimeoutSet       bool
+	maxRetriesSet           bool
+	toolTimeoutSet          bool
+	eventHandler            EventHandler
+	openRouter              bool
 }
 
 func WithBaseURL(baseURL string) Option {
@@ -168,6 +170,11 @@ func WithTools(tools ...Tool) Option {
 
 func WithMaxSteps(maxSteps int) Option {
 	return func(config *config) { config.maxSteps = maxSteps }
+}
+
+// WithFinalResponseAtMaxSteps reserves the last step for a response without tools.
+func WithFinalResponseAtMaxSteps(enabled bool) Option {
+	return func(config *config) { config.finalResponseAtMaxSteps = enabled }
 }
 
 // WithRequestTimeout limits each provider call. Zero disables the limit.
@@ -214,16 +221,17 @@ func NewOpenAICompatibleAgent(options ...Option) *Agent {
 		config.toolTimeout = DefaultToolTimeout
 	}
 	return &Agent{
-		Provider:        NewOpenAICompatibleProvider(options...),
-		SystemPrompt:    config.systemPrompt,
-		ReasoningEffort: config.reasoningEffort,
-		OutputSchema:    config.outputSchema,
-		Tools:           config.tools,
-		MaxSteps:        config.maxSteps,
-		RequestTimeout:  config.requestTimeout,
-		MaxRetries:      config.maxRetries,
-		ToolTimeout:     config.toolTimeout,
-		EventHandler:    config.eventHandler,
+		Provider:                NewOpenAICompatibleProvider(options...),
+		SystemPrompt:            config.systemPrompt,
+		ReasoningEffort:         config.reasoningEffort,
+		OutputSchema:            config.outputSchema,
+		Tools:                   config.tools,
+		MaxSteps:                config.maxSteps,
+		FinalResponseAtMaxSteps: config.finalResponseAtMaxSteps,
+		RequestTimeout:          config.requestTimeout,
+		MaxRetries:              config.maxRetries,
+		ToolTimeout:             config.toolTimeout,
+		EventHandler:            config.eventHandler,
 	}
 }
 

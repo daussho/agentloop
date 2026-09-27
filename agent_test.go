@@ -76,6 +76,31 @@ func TestAgentStopsAtMaxSteps(t *testing.T) {
 	}
 }
 
+func TestAgentFinalResponseAtMaxSteps(t *testing.T) {
+	provider := &fakeProvider{responses: []Response{
+		{ToolCalls: []ToolCall{{ID: "call_1", Name: "double", Arguments: json.RawMessage(`{"value":21}`)}}},
+		{Content: "42"},
+	}}
+	result, err := (Agent{Provider: provider, Model: "test", Tools: []Tool{testTool{}}, MaxSteps: 2, FinalResponseAtMaxSteps: true}).Run(context.Background(), "double 21")
+	if err != nil || result.Output != "42" || result.Steps != 2 {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+	if len(provider.requests) != 2 || len(provider.requests[0].Tools) != 1 || provider.requests[1].Tools != nil {
+		t.Fatalf("requests = %+v", provider.requests)
+	}
+}
+
+func TestAgentRejectsToolCallsOnFinalResponseStep(t *testing.T) {
+	provider := &fakeProvider{responses: []Response{{ToolCalls: []ToolCall{{ID: "call_1", Name: "double"}}}}}
+	_, err := (Agent{Provider: provider, Model: "test", Tools: []Tool{testTool{}}, MaxSteps: 1, FinalResponseAtMaxSteps: true}).Run(context.Background(), "loop")
+	if err == nil || err.Error() != "agentloop: provider returned tool calls without tools" {
+		t.Fatalf("error = %v", err)
+	}
+	if provider.requests[0].Tools != nil {
+		t.Fatalf("tools = %+v", provider.requests[0].Tools)
+	}
+}
+
 func TestAgentRejectsNegativeMaxSteps(t *testing.T) {
 	_, err := (Agent{Provider: &fakeProvider{}, Model: "test", MaxSteps: -1}).Run(context.Background(), "run")
 	if err == nil || err.Error() != "agentloop: max steps cannot be negative" {
@@ -119,8 +144,8 @@ func TestOpenAICompatibleAgentResilienceDefaults(t *testing.T) {
 		t.Fatalf("unexpected defaults: %+v", agent)
 	}
 
-	agent = NewOpenAICompatibleAgent(WithRequestTimeout(0), WithMaxRetries(0), WithToolTimeout(0))
-	if agent.RequestTimeout != 0 || agent.MaxRetries != 0 || agent.ToolTimeout != 0 {
+	agent = NewOpenAICompatibleAgent(WithRequestTimeout(0), WithMaxRetries(0), WithToolTimeout(0), WithFinalResponseAtMaxSteps(true))
+	if agent.RequestTimeout != 0 || agent.MaxRetries != 0 || agent.ToolTimeout != 0 || !agent.FinalResponseAtMaxSteps {
 		t.Fatalf("expected explicit zero values: %+v", agent)
 	}
 }
