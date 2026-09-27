@@ -152,8 +152,12 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 	messages := append(copyMessages(s.messages), Message{Role: "user", Content: input})
 	result := Result{Messages: messages}
 	for step := 1; step <= maxSteps; step++ {
+		stepTools := definitions
+		if a.FinalResponseAtMaxSteps && step == maxSteps {
+			stepTools = nil
+		}
 		s.emit(Event{Type: EventModelRequest, Step: step})
-		response, err := s.complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: definitions, SessionID: s.sessionID})
+		response, err := s.complete(ctx, Request{Model: model, SystemPrompt: a.SystemPrompt, ReasoningEffort: a.ReasoningEffort, OutputSchema: a.OutputSchema, Messages: messages, Tools: stepTools, SessionID: s.sessionID})
 		if err != nil {
 			s.emit(Event{Type: EventError, Step: step, Err: err})
 			return result, fmt.Errorf("agentloop: complete: %w", err)
@@ -167,6 +171,11 @@ func (s *Session) run(ctx context.Context, input string) (Result, error) {
 		messages = append(messages, Message{Role: "assistant", Content: response.Content, ToolCalls: response.ToolCalls})
 		result.Messages = messages
 		s.emit(Event{Type: EventModelResponse, Step: step, Content: response.Content, Usage: response.Usage})
+		if a.FinalResponseAtMaxSteps && step == maxSteps && len(response.ToolCalls) > 0 {
+			err := errors.New("agentloop: provider returned tool calls without tools")
+			s.emit(Event{Type: EventError, Step: step, Err: err})
+			return result, err
+		}
 		if len(response.ToolCalls) == 0 {
 			result.Output, result.Messages = response.Content, messages
 			s.emit(Event{Type: EventCompleted, Step: step, Content: response.Content})
